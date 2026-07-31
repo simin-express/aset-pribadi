@@ -116,6 +116,8 @@
   .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
   .card-title{font-family:'Bitter',serif;font-weight:700;font-size:17px;color:var(--ink);margin:0;padding-left:6px;}
   .card-meta{font-size:11.5px;color:var(--muted);padding-left:6px;margin-top:3px;font-family:'JetBrains Mono',monospace;}
+  .card-meta div{margin-top:2px;}
+  .card-meta div:first-child{margin-top:0;}
   .kategori-tag{
     display:inline-block;font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;
     background:var(--paper-dark);color:var(--navy);padding:2px 7px;border-radius:2px;margin-left:6px;
@@ -299,27 +301,25 @@
         <input id="f-kategori" placeholder="cth. Motor, AC, Kulkas">
       </div>
     </div>
+    <div class="field">
+      <label>Tahun Perolehan</label>
+      <input type="number" id="f-tahun" placeholder="cth. 2023" min="1970" max="2100">
+    </div>
     <div id="block-kendaraan">
       <div class="field-row">
-        <div class="field">
-          <label>Tanggal Perolehan</label>
-          <input type="date" id="f-tanggalBeli">
-        </div>
         <div class="field">
           <label>Atas Nama (sesuai STNK)</label>
           <input id="f-atasNama" placeholder="cth. Budi Santoso">
         </div>
-      </div>
-    </div>
-    <div id="block-barang" style="display:none">
-      <div class="field">
-        <label>Tahun Perolehan</label>
-        <input type="number" id="f-tahun" placeholder="cth. 2023" min="1970" max="2100">
+        <div class="field">
+          <label>Nomor Polisi</label>
+          <input id="f-nomorPolisi" placeholder="cth. B 3421 XYZ">
+        </div>
       </div>
     </div>
     <div class="field">
       <label>Catatan (opsional)</label>
-      <textarea id="f-catatan" placeholder="No. polisi, no. seri, lokasi, dll"></textarea>
+      <textarea id="f-catatan" placeholder="Lokasi, no. seri, keterangan lain"></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('assetOverlay')">Batal</button>
@@ -409,19 +409,19 @@ function dayLabel(days){
   if(days === 0) return 'Hari ini';
   return `H-${days}`;
 }
-function metaLineBase(asset){
-  if(asset.jenis === 'kendaraan'){
-    let line = `Sejak ${fmtDate(asset.tanggalBeli)}`;
-    if(asset.atasNama) line += ` · a.n. ${escapeHtml(asset.atasNama)}`;
-    return line;
-  }
+function metaLinesBase(asset){
   const tahun = new Date(asset.tanggalBeli+'T00:00:00').getFullYear();
-  return `Tahun perolehan ${tahun}`;
+  const lines = [`Tahun Perolehan: ${tahun}`];
+  if(asset.jenis === 'kendaraan'){
+    if(asset.atasNama) lines.push(`Atas Nama: ${escapeHtml(asset.atasNama)}`);
+    if(asset.nomorPolisi) lines.push(`No. Polisi: ${escapeHtml(asset.nomorPolisi)}`);
+  }
+  return lines;
 }
-function metaLine(asset){
-  let line = metaLineBase(asset);
-  if(asset.catatan) line += ` · ${escapeHtml(asset.catatan)}`;
-  return line;
+function metaLinesHtml(asset){
+  const lines = metaLinesBase(asset);
+  if(asset.catatan) lines.push(escapeHtml(asset.catatan));
+  return lines.map(l => `<div>${l}</div>`).join('');
 }
 
 async function loadAssets(){
@@ -449,7 +449,7 @@ function seedData(){
   return [
     {
       id: 'a1', jenis:'kendaraan', nama:'Honda Vario 125', kategori:'Motor',
-      tanggalBeli:'2021-03-14', atasNama:'Budi Santoso', catatan:'No. Polisi B 3421 XYZ',
+      tanggalBeli:'2021-03-14', atasNama:'Budi Santoso', nomorPolisi:'B 3421 XYZ', catatan:'',
       reminders:[
         {id:'r1', label:'Servis rutin', tanggal: plus(4), interval:90, catatan:'Bengkel resmi AHASS'},
         {id:'r2', label:'Pajak STNK tahunan', tanggal: minus(3), interval:365, catatan:''}
@@ -555,7 +555,7 @@ function render(){
         <div class="card-top">
           <div>
             <p class="card-title">${escapeHtml(asset.nama)}<span class="kategori-tag">${escapeHtml(asset.kategori||'-')}</span></p>
-            <div class="card-meta">${metaLine(asset)}</div>
+            <div class="card-meta">${metaLinesHtml(asset)}</div>
           </div>
           <div class="stamp ${status}">${stampContent}</div>
         </div>
@@ -583,7 +583,6 @@ function escapeHtml(str){
 function onJenisChange(){
   const j = document.getElementById('f-jenis').value;
   document.getElementById('block-kendaraan').style.display = j === 'kendaraan' ? '' : 'none';
-  document.getElementById('block-barang').style.display = j === 'barang' ? '' : 'none';
 }
 function openAssetModal(id){
   document.getElementById('assetId').value = id || '';
@@ -593,18 +592,18 @@ function openAssetModal(id){
     document.getElementById('f-jenis').value = a.jenis;
     document.getElementById('f-nama').value = a.nama;
     document.getElementById('f-kategori').value = a.kategori || '';
-    document.getElementById('f-tanggalBeli').value = a.tanggalBeli;
-    document.getElementById('f-atasNama').value = a.atasNama || '';
     document.getElementById('f-tahun').value = new Date(a.tanggalBeli+'T00:00:00').getFullYear();
+    document.getElementById('f-atasNama').value = a.atasNama || '';
+    document.getElementById('f-nomorPolisi').value = a.nomorPolisi || '';
     document.getElementById('f-catatan').value = a.catatan || '';
   }else{
     document.getElementById('assetModalTitle').textContent = 'Tambah Aset';
     document.getElementById('f-jenis').value = 'kendaraan';
     document.getElementById('f-nama').value = '';
     document.getElementById('f-kategori').value = '';
-    document.getElementById('f-tanggalBeli').value = todayStr();
-    document.getElementById('f-atasNama').value = '';
     document.getElementById('f-tahun').value = new Date().getFullYear();
+    document.getElementById('f-atasNama').value = '';
+    document.getElementById('f-nomorPolisi').value = '';
     document.getElementById('f-catatan').value = '';
   }
   onJenisChange();
@@ -617,20 +616,17 @@ async function saveAsset(){
   const nama = document.getElementById('f-nama').value.trim();
   if(!nama){ showToast('Nama aset wajib diisi'); return; }
   const jenis = document.getElementById('f-jenis').value;
-  let tanggalBeli, atasNama = '';
-  if(jenis === 'kendaraan'){
-    tanggalBeli = document.getElementById('f-tanggalBeli').value || todayStr();
-    atasNama = document.getElementById('f-atasNama').value.trim();
-  }else{
-    const tahun = parseInt(document.getElementById('f-tahun').value) || new Date().getFullYear();
-    tanggalBeli = `${tahun}-01-01`;
-  }
+  const tahun = parseInt(document.getElementById('f-tahun').value) || new Date().getFullYear();
+  const tanggalBeli = `${tahun}-01-01`;
+  const atasNama = jenis === 'kendaraan' ? document.getElementById('f-atasNama').value.trim() : '';
+  const nomorPolisi = jenis === 'kendaraan' ? document.getElementById('f-nomorPolisi').value.trim() : '';
   const data = {
     jenis,
     nama,
     kategori: document.getElementById('f-kategori').value.trim(),
     tanggalBeli,
     atasNama,
+    nomorPolisi,
     catatan: document.getElementById('f-catatan').value.trim(),
   };
   if(id){
@@ -727,8 +723,8 @@ function exportExcel(){
     'Jenis': a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah',
     'Kategori': a.kategori || '',
     'Atas Nama (STNK)': a.jenis === 'kendaraan' ? (a.atasNama || '') : '',
-    'Tanggal Perolehan': a.jenis === 'kendaraan' ? fmtDate(a.tanggalBeli) : '',
-    'Tahun Perolehan': a.jenis === 'barang' ? new Date(a.tanggalBeli+'T00:00:00').getFullYear() : '',
+    'Nomor Polisi': a.jenis === 'kendaraan' ? (a.nomorPolisi || '') : '',
+    'Tahun Perolehan': new Date(a.tanggalBeli+'T00:00:00').getFullYear(),
     'Catatan': a.catatan || '',
     'Jumlah Pengingat': (a.reminders||[]).length
   }));
@@ -846,7 +842,7 @@ function renderDetailPage(assetId){
 
   document.getElementById('detail-nama').textContent = a.nama;
   document.getElementById('detail-kategori').textContent = a.kategori || (a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah');
-  document.getElementById('detail-meta').innerHTML = metaLineBase(a);
+  document.getElementById('detail-meta').innerHTML = metaLinesBase(a).map(l => `<div>${l}</div>`).join('');
   document.getElementById('detail-catatan').textContent = a.catatan || '';
 
   const sortedRems = [...(a.reminders||[])].sort((x,y)=> new Date(x.tanggal)-new Date(y.tanggal));
