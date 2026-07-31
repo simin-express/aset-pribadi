@@ -228,11 +228,24 @@
   .label-nama{font-family:'Bitter',serif;font-weight:700;font-size:15px;color:var(--ink);}
   .label-kategori{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
   .label-code{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.5px;margin-top:4px;color:var(--ink);}
-  #label-barcode{max-width:100%;}
+  .label-qr{display:flex;justify-content:center;margin:8px 0 4px;}
+
+  /* HALAMAN RINCIAN MANDIRI (dibuka via scan QR) */
+  .detail-page-card{
+    background:var(--paper-card);border:1px solid var(--line);border-radius:6px;
+    padding:26px 24px;max-width:480px;margin:48px auto;
+    box-shadow:0 1px 3px rgba(42,36,28,0.06);
+  }
+  .detail-page-title{font-family:'Bitter',serif;font-weight:700;font-size:22px;margin:0 0 4px;color:var(--ink);}
+  .detail-page-catatan{font-size:13.5px;color:var(--muted);margin:12px 0;}
+  .detail-page-label{
+    font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;
+    letter-spacing:0.4px;margin-bottom:8px;
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="appWrap">
   <div class="masthead">
     <div>
       <h1>Buku Aset Rumah</h1>
@@ -247,6 +260,22 @@
   <div class="summary" id="summary"></div>
   <div class="tabs" id="tabs"></div>
   <div class="grid" id="grid"></div>
+</div>
+
+<div class="wrap" id="detailPage" style="display:none;">
+  <div class="detail-page-card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+      <div>
+        <h1 id="detail-nama" class="detail-page-title"></h1>
+        <div class="card-meta" id="detail-meta" style="padding-left:0;"></div>
+      </div>
+      <span class="kategori-tag" id="detail-kategori"></span>
+    </div>
+    <div id="detail-catatan" class="detail-page-catatan"></div>
+    <hr class="divider">
+    <div class="detail-page-label">Pengingat</div>
+    <div id="detail-reminders"></div>
+  </div>
 </div>
 
 <div class="overlay" id="assetOverlay">
@@ -330,12 +359,12 @@
 </div>
 
 <div class="overlay" id="labelOverlay">
-  <div class="modal" style="max-width:320px;">
+  <div class="modal" style="max-width:300px;">
     <h2>Label Aset</h2>
     <div id="labelPrintArea" class="label-card">
       <div class="label-nama" id="label-nama"></div>
       <div class="label-kategori" id="label-kategori"></div>
-      <svg id="label-barcode"></svg>
+      <div id="label-qr" class="label-qr"></div>
       <div class="label-code" id="label-code"></div>
     </div>
     <div class="modal-actions">
@@ -347,8 +376,8 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 let assets = [];
 let filter = 'semua';
@@ -380,34 +409,37 @@ function dayLabel(days){
   if(days === 0) return 'Hari ini';
   return `H-${days}`;
 }
-function metaLine(asset){
-  let line;
+function metaLineBase(asset){
   if(asset.jenis === 'kendaraan'){
-    line = `Sejak ${fmtDate(asset.tanggalBeli)}`;
+    let line = `Sejak ${fmtDate(asset.tanggalBeli)}`;
     if(asset.atasNama) line += ` · a.n. ${escapeHtml(asset.atasNama)}`;
-  }else{
-    const tahun = new Date(asset.tanggalBeli+'T00:00:00').getFullYear();
-    line = `Tahun perolehan ${tahun}`;
+    return line;
   }
+  const tahun = new Date(asset.tanggalBeli+'T00:00:00').getFullYear();
+  return `Tahun perolehan ${tahun}`;
+}
+function metaLine(asset){
+  let line = metaLineBase(asset);
   if(asset.catatan) line += ` · ${escapeHtml(asset.catatan)}`;
   return line;
 }
 
 async function loadAssets(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    assets = res && res.value ? JSON.parse(res.value) : seedData();
+    const raw = localStorage.getItem(STORAGE_KEY);
+    assets = raw ? JSON.parse(raw) : seedData();
   }catch(e){
+    console.error('Gagal memuat data', e);
     assets = seedData();
   }
   render();
 }
 async function persist(){
   try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify(assets), false);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(assets));
   }catch(e){
     console.error('Gagal menyimpan', e);
-    showToast('Gagal menyimpan data');
+    showToast('Gagal menyimpan data — penyimpanan browser mungkin penuh/diblokir');
   }
 }
 function seedData(){
@@ -725,32 +757,49 @@ function exportExcel(){
   showToast('Rekap Excel diunduh');
 }
 
-/* ---- Label / Barcode ---- */
+/* ---- Label / QR ---- */
 function openLabelModal(assetId){
   const a = assets.find(x=>x.id===assetId);
   document.getElementById('label-nama').textContent = a.nama;
   document.getElementById('label-kategori').textContent = a.kategori || (a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah');
   const code = 'ASET-' + a.id.toUpperCase();
   document.getElementById('label-code').textContent = code;
-  if(window.JsBarcode){
+
+  const qrContainer = document.getElementById('label-qr');
+  qrContainer.innerHTML = '';
+  if(window.QRCode){
+    const detailUrl = `${window.location.origin}${window.location.pathname}?asset=${a.id}`;
     try{
-      JsBarcode('#label-barcode', code, {format:'CODE128', width:2, height:52, displayValue:false, margin:4});
-    }catch(e){
-      console.warn('Gagal membuat barcode', e);
-    }
+      new QRCode(qrContainer, {
+        text: detailUrl, width: 130, height: 130,
+        colorDark: '#22314F', colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }catch(e){ console.warn('Gagal membuat QR code', e); }
   }else{
-    showToast('Modul barcode belum termuat — cek koneksi internet');
+    showToast('Modul QR code belum termuat — cek koneksi internet');
   }
+
   document.getElementById('labelOverlay').classList.add('show');
 }
+function getQrImageMarkup(){
+  const container = document.getElementById('label-qr');
+  const canvas = container.querySelector('canvas');
+  if(canvas){
+    return `<img src="${canvas.toDataURL('image/png')}" style="width:130px;height:130px;">`;
+  }
+  const img = container.querySelector('img');
+  if(img){ return `<img src="${img.src}" style="width:130px;height:130px;">`; }
+  return '';
+}
+
 function printLabel(){
-  const svgEl = document.getElementById('label-barcode');
-  const svgMarkup = svgEl ? svgEl.outerHTML : '';
+  const qrMarkup = getQrImageMarkup();
   const nama = document.getElementById('label-nama').textContent;
   const kategori = document.getElementById('label-kategori').textContent;
   const code = document.getElementById('label-code').textContent;
 
-  const win = window.open('', '_blank', 'width=380,height=480');
+  const win = window.open('', '_blank', 'width=360,height=460');
   if(!win){
     showToast('Popup diblokir browser — izinkan popup untuk mencetak label');
     return;
@@ -760,18 +809,17 @@ function printLabel(){
     <title>Label - ${nama}</title>
     <style>
       body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;display:flex;justify-content:center;}
-      .label-card{border:1.5px dashed #22314F;border-radius:6px;padding:16px 22px;text-align:center;max-width:280px;}
+      .label-card{border:1.5px dashed #22314F;border-radius:6px;padding:16px 22px;text-align:center;max-width:260px;}
       .label-nama{font-weight:700;font-size:16px;margin-bottom:2px;color:#111;}
       .label-kategori{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;}
-      .label-code{font-family:'Courier New',monospace;font-size:11px;letter-spacing:1.5px;margin-top:6px;color:#111;}
-      svg{max-width:100%;height:auto;}
+      .label-code{font-family:'Courier New',monospace;font-size:11px;letter-spacing:1.5px;margin-top:8px;color:#111;}
       @media print{ body{padding:0;} }
     </style>
     </head><body>
       <div class="label-card">
         <div class="label-nama">${nama}</div>
         <div class="label-kategori">${kategori}</div>
-        ${svgMarkup}
+        ${qrMarkup}
         <div class="label-code">${code}</div>
       </div>
     </body></html>`);
@@ -784,7 +832,51 @@ function printLabel(){
   };
 }
 
-loadAssets();
+/* ---- Halaman rincian mandiri (dibuka otomatis saat QR di-scan) ---- */
+function renderDetailPage(assetId){
+  const a = assets.find(x=>x.id===assetId);
+  document.getElementById('appWrap').style.display = 'none';
+  document.getElementById('detailPage').style.display = 'block';
+
+  if(!a){
+    document.querySelector('#detailPage .detail-page-card').innerHTML =
+      '<div style="text-align:center;color:var(--muted);font-size:13.5px;">Aset dari kode ini tidak ditemukan di perangkat ini.</div>';
+    return;
+  }
+
+  document.getElementById('detail-nama').textContent = a.nama;
+  document.getElementById('detail-kategori').textContent = a.kategori || (a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah');
+  document.getElementById('detail-meta').innerHTML = metaLineBase(a);
+  document.getElementById('detail-catatan').textContent = a.catatan || '';
+
+  const sortedRems = [...(a.reminders||[])].sort((x,y)=> new Date(x.tanggal)-new Date(y.tanggal));
+  const html = sortedRems.length ? sortedRems.map(r=>{
+    const d = daysUntil(r.tanggal);
+    const s = statusOf(d);
+    return `
+      <div class="rem-row">
+        <div>
+          <div class="rem-label">${escapeHtml(r.label)}</div>
+          <div class="rem-date">${fmtDate(r.tanggal)}${r.interval ? ' · ulang '+r.interval+' hr' : ''}${r.catatan ? ' · '+escapeHtml(r.catatan) : ''}</div>
+        </div>
+        <span class="rem-badge ${s}">${dayLabel(d)}</span>
+      </div>`;
+  }).join('') : `<div class="no-rem">Belum ada pengingat untuk aset ini.</div>`;
+  document.getElementById('detail-reminders').innerHTML = html;
+}
+
+function checkDeepLink(){
+  const params = new URLSearchParams(window.location.search);
+  const assetId = params.get('asset');
+  if(!assetId) return;
+  renderDetailPage(assetId);
+}
+
+async function init(){
+  await loadAssets();
+  checkDeepLink();
+}
+init();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
