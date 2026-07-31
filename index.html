@@ -66,6 +66,9 @@
     cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s;
   }
   .btn-add:hover{background:var(--navy-2);}
+  .header-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn-export{background:var(--green);}
+  .btn-export:hover{background:#325c3d;}
 
   /* SUMMARY STRIP */
   .summary{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
@@ -216,6 +219,16 @@
     .masthead h1{font-size:24px;}
     .stamp{width:54px;height:54px;}
   }
+
+  /* LABEL / BARCODE */
+  .label-card{
+    border:1.5px dashed var(--navy);border-radius:6px;padding:16px 12px;
+    text-align:center;background:#fff;margin-bottom:4px;
+  }
+  .label-nama{font-family:'Bitter',serif;font-weight:700;font-size:15px;color:var(--ink);}
+  .label-kategori{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
+  .label-code{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.5px;margin-top:4px;color:var(--ink);}
+  #label-barcode{max-width:100%;}
 </style>
 </head>
 <body>
@@ -225,7 +238,10 @@
       <h1>Buku Aset Rumah</h1>
       <div class="sub" id="todayLabel">— memuat —</div>
     </div>
-    <button class="btn-add" onclick="openAssetModal()">+ Tambah Aset</button>
+    <div class="header-actions">
+      <button class="btn-add btn-export" onclick="exportExcel()">⬇ Ekspor Excel</button>
+      <button class="btn-add" onclick="openAssetModal()">+ Tambah Aset</button>
+    </div>
   </div>
 
   <div class="summary" id="summary"></div>
@@ -239,7 +255,7 @@
     <input type="hidden" id="assetId">
     <div class="field">
       <label>Jenis</label>
-      <select id="f-jenis">
+      <select id="f-jenis" onchange="onJenisChange()">
         <option value="kendaraan">Kendaraan</option>
         <option value="barang">Barang Rumah</option>
       </select>
@@ -254,9 +270,23 @@
         <input id="f-kategori" placeholder="cth. Motor, AC, Kulkas">
       </div>
     </div>
-    <div class="field">
-      <label>Tanggal Perolehan</label>
-      <input type="date" id="f-tanggalBeli">
+    <div id="block-kendaraan">
+      <div class="field-row">
+        <div class="field">
+          <label>Tanggal Perolehan</label>
+          <input type="date" id="f-tanggalBeli">
+        </div>
+        <div class="field">
+          <label>Atas Nama (sesuai STNK)</label>
+          <input id="f-atasNama" placeholder="cth. Budi Santoso">
+        </div>
+      </div>
+    </div>
+    <div id="block-barang" style="display:none">
+      <div class="field">
+        <label>Tahun Perolehan</label>
+        <input type="number" id="f-tahun" placeholder="cth. 2023" min="1970" max="2100">
+      </div>
     </div>
     <div class="field">
       <label>Catatan (opsional)</label>
@@ -299,8 +329,26 @@
   </div>
 </div>
 
+<div class="overlay" id="labelOverlay">
+  <div class="modal" style="max-width:320px;">
+    <h2>Label Aset</h2>
+    <div id="labelPrintArea" class="label-card">
+      <div class="label-nama" id="label-nama"></div>
+      <div class="label-kategori" id="label-kategori"></div>
+      <svg id="label-barcode"></svg>
+      <div class="label-code" id="label-code"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('labelOverlay')">Tutup</button>
+      <button class="btn-primary" onclick="printLabel()">🖨 Cetak Label</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 let assets = [];
 let filter = 'semua';
@@ -332,6 +380,18 @@ function dayLabel(days){
   if(days === 0) return 'Hari ini';
   return `H-${days}`;
 }
+function metaLine(asset){
+  let line;
+  if(asset.jenis === 'kendaraan'){
+    line = `Sejak ${fmtDate(asset.tanggalBeli)}`;
+    if(asset.atasNama) line += ` · a.n. ${escapeHtml(asset.atasNama)}`;
+  }else{
+    const tahun = new Date(asset.tanggalBeli+'T00:00:00').getFullYear();
+    line = `Tahun perolehan ${tahun}`;
+  }
+  if(asset.catatan) line += ` · ${escapeHtml(asset.catatan)}`;
+  return line;
+}
 
 async function loadAssets(){
   try{
@@ -357,7 +417,7 @@ function seedData(){
   return [
     {
       id: 'a1', jenis:'kendaraan', nama:'Honda Vario 125', kategori:'Motor',
-      tanggalBeli:'2021-03-14', catatan:'No. Polisi B 3421 XYZ',
+      tanggalBeli:'2021-03-14', atasNama:'Budi Santoso', catatan:'No. Polisi B 3421 XYZ',
       reminders:[
         {id:'r1', label:'Servis rutin', tanggal: plus(4), interval:90, catatan:'Bengkel resmi AHASS'},
         {id:'r2', label:'Pajak STNK tahunan', tanggal: minus(3), interval:365, catatan:''}
@@ -463,7 +523,7 @@ function render(){
         <div class="card-top">
           <div>
             <p class="card-title">${escapeHtml(asset.nama)}<span class="kategori-tag">${escapeHtml(asset.kategori||'-')}</span></p>
-            <div class="card-meta">Sejak ${fmtDate(asset.tanggalBeli)} ${asset.catatan ? ' · '+escapeHtml(asset.catatan) : ''}</div>
+            <div class="card-meta">${metaLine(asset)}</div>
           </div>
           <div class="stamp ${status}">${stampContent}</div>
         </div>
@@ -471,6 +531,7 @@ function render(){
         <div class="card-footer">
           <button class="link-btn" onclick="toggleExpand('${asset.id}')">${isOpen ? 'Sembunyikan' : 'Lihat pengingat ('+sortedRems.length+')'}</button>
           <div class="card-icons">
+            <button class="icon-btn" title="Cetak label barcode" onclick="openLabelModal('${asset.id}')">🏷</button>
             <button class="icon-btn" title="Tambah pengingat" onclick="openReminderModal('${asset.id}')">+ Pengingat</button>
             <button class="icon-btn" title="Ubah aset" onclick="openAssetModal('${asset.id}')">✎</button>
             <button class="icon-btn danger" title="Hapus aset" onclick="deleteAsset('${asset.id}')">✕</button>
@@ -487,6 +548,11 @@ function escapeHtml(str){
 }
 
 /* ---- Asset modal ---- */
+function onJenisChange(){
+  const j = document.getElementById('f-jenis').value;
+  document.getElementById('block-kendaraan').style.display = j === 'kendaraan' ? '' : 'none';
+  document.getElementById('block-barang').style.display = j === 'barang' ? '' : 'none';
+}
 function openAssetModal(id){
   document.getElementById('assetId').value = id || '';
   if(id){
@@ -496,6 +562,8 @@ function openAssetModal(id){
     document.getElementById('f-nama').value = a.nama;
     document.getElementById('f-kategori').value = a.kategori || '';
     document.getElementById('f-tanggalBeli').value = a.tanggalBeli;
+    document.getElementById('f-atasNama').value = a.atasNama || '';
+    document.getElementById('f-tahun').value = new Date(a.tanggalBeli+'T00:00:00').getFullYear();
     document.getElementById('f-catatan').value = a.catatan || '';
   }else{
     document.getElementById('assetModalTitle').textContent = 'Tambah Aset';
@@ -503,8 +571,11 @@ function openAssetModal(id){
     document.getElementById('f-nama').value = '';
     document.getElementById('f-kategori').value = '';
     document.getElementById('f-tanggalBeli').value = todayStr();
+    document.getElementById('f-atasNama').value = '';
+    document.getElementById('f-tahun').value = new Date().getFullYear();
     document.getElementById('f-catatan').value = '';
   }
+  onJenisChange();
   document.getElementById('assetOverlay').classList.add('show');
 }
 function closeModal(id){ document.getElementById(id).classList.remove('show'); }
@@ -513,11 +584,21 @@ async function saveAsset(){
   const id = document.getElementById('assetId').value;
   const nama = document.getElementById('f-nama').value.trim();
   if(!nama){ showToast('Nama aset wajib diisi'); return; }
+  const jenis = document.getElementById('f-jenis').value;
+  let tanggalBeli, atasNama = '';
+  if(jenis === 'kendaraan'){
+    tanggalBeli = document.getElementById('f-tanggalBeli').value || todayStr();
+    atasNama = document.getElementById('f-atasNama').value.trim();
+  }else{
+    const tahun = parseInt(document.getElementById('f-tahun').value) || new Date().getFullYear();
+    tanggalBeli = `${tahun}-01-01`;
+  }
   const data = {
-    jenis: document.getElementById('f-jenis').value,
+    jenis,
     nama,
     kategori: document.getElementById('f-kategori').value.trim(),
-    tanggalBeli: document.getElementById('f-tanggalBeli').value || todayStr(),
+    tanggalBeli,
+    atasNama,
     catatan: document.getElementById('f-catatan').value.trim(),
   };
   if(id){
@@ -602,6 +683,105 @@ async function completeReminder(assetId, remId){
   }
   await persist();
   render();
+}
+
+/* ---- Ekspor Excel ---- */
+function exportExcel(){
+  if(!window.XLSX){ showToast('Modul Excel belum termuat — cek koneksi internet'); return; }
+  if(assets.length === 0){ showToast('Belum ada data aset untuk diekspor'); return; }
+
+  const assetRows = assets.map(a => ({
+    'Nama Aset': a.nama,
+    'Jenis': a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah',
+    'Kategori': a.kategori || '',
+    'Atas Nama (STNK)': a.jenis === 'kendaraan' ? (a.atasNama || '') : '',
+    'Tanggal Perolehan': a.jenis === 'kendaraan' ? fmtDate(a.tanggalBeli) : '',
+    'Tahun Perolehan': a.jenis === 'barang' ? new Date(a.tanggalBeli+'T00:00:00').getFullYear() : '',
+    'Catatan': a.catatan || '',
+    'Jumlah Pengingat': (a.reminders||[]).length
+  }));
+
+  const reminderRows = [];
+  assets.forEach(a=>{
+    (a.reminders||[]).forEach(r=>{
+      const d = daysUntil(r.tanggal);
+      const s = statusOf(d);
+      reminderRows.push({
+        'Aset': a.nama,
+        'Jenis': a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah',
+        'Pengingat': r.label,
+        'Jatuh Tempo': fmtDate(r.tanggal),
+        'Ulang Tiap (hari)': r.interval || '',
+        'Status': s === 'lewat' ? 'Lewat Tempo' : (s === 'segera' ? 'Segera' : 'Aman'),
+        'Catatan': r.catatan || ''
+      });
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(assetRows), 'Aset');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(reminderRows), 'Pengingat');
+  XLSX.writeFile(wb, `rekap-aset-rumah-${todayStr()}.xlsx`);
+  showToast('Rekap Excel diunduh');
+}
+
+/* ---- Label / Barcode ---- */
+function openLabelModal(assetId){
+  const a = assets.find(x=>x.id===assetId);
+  document.getElementById('label-nama').textContent = a.nama;
+  document.getElementById('label-kategori').textContent = a.kategori || (a.jenis === 'kendaraan' ? 'Kendaraan' : 'Barang Rumah');
+  const code = 'ASET-' + a.id.toUpperCase();
+  document.getElementById('label-code').textContent = code;
+  if(window.JsBarcode){
+    try{
+      JsBarcode('#label-barcode', code, {format:'CODE128', width:2, height:52, displayValue:false, margin:4});
+    }catch(e){
+      console.warn('Gagal membuat barcode', e);
+    }
+  }else{
+    showToast('Modul barcode belum termuat — cek koneksi internet');
+  }
+  document.getElementById('labelOverlay').classList.add('show');
+}
+function printLabel(){
+  const svgEl = document.getElementById('label-barcode');
+  const svgMarkup = svgEl ? svgEl.outerHTML : '';
+  const nama = document.getElementById('label-nama').textContent;
+  const kategori = document.getElementById('label-kategori').textContent;
+  const code = document.getElementById('label-code').textContent;
+
+  const win = window.open('', '_blank', 'width=380,height=480');
+  if(!win){
+    showToast('Popup diblokir browser — izinkan popup untuk mencetak label');
+    return;
+  }
+  win.document.open();
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Label - ${nama}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;display:flex;justify-content:center;}
+      .label-card{border:1.5px dashed #22314F;border-radius:6px;padding:16px 22px;text-align:center;max-width:280px;}
+      .label-nama{font-weight:700;font-size:16px;margin-bottom:2px;color:#111;}
+      .label-kategori{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;}
+      .label-code{font-family:'Courier New',monospace;font-size:11px;letter-spacing:1.5px;margin-top:6px;color:#111;}
+      svg{max-width:100%;height:auto;}
+      @media print{ body{padding:0;} }
+    </style>
+    </head><body>
+      <div class="label-card">
+        <div class="label-nama">${nama}</div>
+        <div class="label-kategori">${kategori}</div>
+        ${svgMarkup}
+        <div class="label-code">${code}</div>
+      </div>
+    </body></html>`);
+  win.document.close();
+  win.onload = function(){
+    setTimeout(function(){
+      win.focus();
+      win.print();
+    }, 300);
+  };
 }
 
 loadAssets();
