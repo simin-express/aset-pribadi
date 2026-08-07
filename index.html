@@ -381,9 +381,10 @@
         <label>Kode Rumah</label>
         <input id="sync-kode" placeholder="cth. keluarga-santoso-01">
       </div>
+      <div id="syncMsg" style="font-size:12.5px;margin-bottom:10px;min-height:16px;"></div>
       <div class="modal-actions" style="justify-content:space-between;">
         <button class="btn-secondary" onclick="generateRandomCode()">🎲 Buat Kode Acak</button>
-        <button class="btn-primary" onclick="connectHousehold()">Sambungkan</button>
+        <button class="btn-primary" id="btn-sambungkan" onclick="connectHousehold()">Sambungkan</button>
       </div>
     </div>
     <div id="syncConnected" style="display:none;">
@@ -457,6 +458,7 @@ function updateSyncStatusUI(){
 
 function openSyncModal(){
   document.getElementById('sync-kode').value = householdCode || '';
+  document.getElementById('syncMsg').textContent = '';
   document.getElementById('syncNotConnected').style.display = householdCode ? 'none' : 'block';
   document.getElementById('syncConnected').style.display = householdCode ? 'block' : 'none';
   if(householdCode){
@@ -473,20 +475,31 @@ function generateRandomCode(){
 }
 
 async function connectHousehold(){
-  const kode = document.getElementById('sync-kode').value.trim().toLowerCase();
-  if(!kode){ showToast('Isi atau buat kode rumah dulu'); return; }
-  if(!firestoreDb){ showToast('Modul sinkron belum termuat — cek koneksi internet'); return; }
+  const msgEl = document.getElementById('syncMsg');
+  const btnEl = document.getElementById('btn-sambungkan');
+  const setMsg = (text, color) => { msgEl.textContent = text; msgEl.style.color = color || 'var(--muted)'; };
 
-  showToast('Menyambungkan…');
+  document.activeElement && document.activeElement.blur();
+
+  const kode = document.getElementById('sync-kode').value.trim().toLowerCase();
+  if(!kode){ setMsg('Isi atau buat kode rumah dulu', 'var(--rust)'); return; }
+  if(!window.firebase){ setMsg('Modul Firebase gagal dimuat — cek koneksi internet / coba matikan ad-blocker', 'var(--rust)'); return; }
+  if(!firestoreDb){ setMsg('Firestore belum siap — coba tunggu beberapa detik lalu ulangi', 'var(--rust)'); return; }
+
+  btnEl.disabled = true;
+  setMsg('Menyambungkan…');
+
+  const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error('Waktu habis (10 detik) — cek koneksi internet')), ms));
+
   try{
-    const isAuthed = await firebaseAuthReady;
+    const isAuthed = await Promise.race([firebaseAuthReady, timeout(10000)]);
     if(!isAuthed){
-      showToast('Gagal login ke server sinkron (auth gagal) — cek Anonymous Auth di Firebase Console');
-      console.warn('firebaseAuthReady resolved false — anonymous sign-in kemungkinan gagal/tidak aktif.');
+      setMsg('Login anonim gagal. Cek: Firebase Console → Authentication → Sign-in method → Anonymous harus Enabled.', 'var(--rust)');
+      btnEl.disabled = false;
       return;
     }
     const docRef = firestoreDb.collection('households').doc(kode);
-    const snap = await docRef.get();
+    const snap = await Promise.race([docRef.get(), timeout(10000)]);
     if(!snap.exists){
       await docRef.set({ assets, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
     }
@@ -494,11 +507,14 @@ async function connectHousehold(){
     localStorage.setItem(HOUSEHOLD_KEY, kode);
     attachSyncListener(docRef);
     updateSyncStatusUI();
+    setMsg('');
     openSyncModal();
     showToast('Tersambung! Data akan sinkron otomatis.');
   }catch(e){
     console.error('Gagal menyambungkan sinkron', e);
-    showToast(`Gagal tersambung: ${e.code || e.name || ''} ${e.message || e}`);
+    setMsg(`Gagal: ${e.code || e.name || ''} ${e.message || e}`, 'var(--rust)');
+  }finally{
+    btnEl.disabled = false;
   }
 }
 
