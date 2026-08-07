@@ -479,7 +479,12 @@ async function connectHousehold(){
 
   showToast('Menyambungkan…');
   try{
-    await firebaseAuthReady;
+    const isAuthed = await firebaseAuthReady;
+    if(!isAuthed){
+      showToast('Gagal login ke server sinkron (auth gagal) — cek Anonymous Auth di Firebase Console');
+      console.warn('firebaseAuthReady resolved false — anonymous sign-in kemungkinan gagal/tidak aktif.');
+      return;
+    }
     const docRef = firestoreDb.collection('households').doc(kode);
     const snap = await docRef.get();
     if(!snap.exists){
@@ -493,7 +498,7 @@ async function connectHousehold(){
     showToast('Tersambung! Data akan sinkron otomatis.');
   }catch(e){
     console.error('Gagal menyambungkan sinkron', e);
-    showToast('Gagal tersambung — cek koneksi internet atau coba lagi');
+    showToast(`Gagal tersambung: ${e.code || e.name || ''} ${e.message || e}`);
   }
 }
 
@@ -643,7 +648,7 @@ function showToast(msg){
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(()=> t.classList.remove('show'), 2200);
+  t._timer = setTimeout(()=> t.classList.remove('show'), 4500);
 }
 
 function setFilter(j){ filter = j; render(); }
