@@ -430,15 +430,12 @@ if(window.firebase){
   try{
     firebase.initializeApp(firebaseConfig);
     firestoreDb = firebase.firestore();
-    firebaseAuthReady = new Promise((resolve) => {
-      firebase.auth().signInAnonymously().catch((e) => {
-        console.error('Gagal login anonim', e);
-        resolve(false);
+    firebaseAuthReady = firebase.auth().signInAnonymously()
+      .then(() => true)
+      .catch((e) => {
+        console.error('Gagal login anonim', e.code, e.message);
+        return false;
       });
-      firebase.auth().onAuthStateChanged((user) => {
-        resolve(!!user);
-      });
-    });
   }catch(e){
     console.error('Gagal inisialisasi Firebase', e);
   }
